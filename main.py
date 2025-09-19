@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from routes.hubs import router as hubs_router
 from routes.service_tickets import router as service_tickets_router
 from routes.technicians import router as technicians_router
+from routes.analytics import router as analytics_router
 
 load_dotenv()
 app = FastAPI(title="Eveez Service API", version="1.0.0")
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(hubs_router)
 app.include_router(service_tickets_router)
 app.include_router(technicians_router, prefix="/api/v1", tags=["technicians"])
+app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 
 @app.get("/")
 def root():
