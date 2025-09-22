@@ -55,89 +55,72 @@ def get_date_range(range_type: str, start: Optional[str] = None, end: Optional[s
 
 @router.get("/analytics/service-requests/summary")
 def get_service_requests_summary(
-    range: str = Query(..., description="Time range: today, yesterday, last_7, last_30, or custom"),
+    range: Optional[str] = Query(None, description="Time range: today, yesterday, last_7, last_30, or custom"),
     start: Optional[str] = Query(None, description="Start date for custom range (YYYY-MM-DD)"),
-    end: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)")
+    end: Optional[str] = Query(None, description="End date for custom range (YYYY-MM-DD)"),
+    location: Optional[str] = Query(None, description="Exact location name from service_requests.location"),
+    start_date: Optional[str] = Query(None, description="Start date in ISO format (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date in ISO format (YYYY-MM-DD)")
 ):
     """
-    Get service requests analytics summary with status counts
+    Get service requests analytics summary with status counts.
+    
+    Args:
+        range: Time range for filtering (today, yesterday, last_7, last_30, or custom)
+        start: Start date for custom range (YYYY-MM-DD format)
+        end: End date for custom range (YYYY-MM-DD format)
+        location: Optional exact location name from service_requests.location for filtering
+        start_date: Start date in ISO format (YYYY-MM-DD) - alternative to range/start/end
+        end_date: End date in ISO format (YYYY-MM-DD) - alternative to range/start/end
     """
     try:
         mongo_db = db.get_mongo_database()
         collection = mongo_db['service_requests']
         
-        # Get date range
-        start_date, end_date = get_date_range(range, start, end)
+        # Handle date range - prioritize start_date/end_date over range parameters
+        if start_date and end_date:
+            # Use direct date parameters (for frontend integration)
+            try:
+                ist = get_ist_timezone()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").replace(hour=0, minute=0, second=0, microsecond=0)
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999)
+                # Convert to IST
+                start_date_obj = ist.localize(start_date_obj)
+                end_date_obj = ist.localize(end_date_obj)
+            except ValueError:
+                raise ValueError("Invalid date format. Use YYYY-MM-DD")
+        elif range:
+            # Use existing range logic
+            start_date_obj, end_date_obj = get_date_range(range, start, end)
+        else:
+            raise ValueError("Either range or start_date/end_date must be provided")
         
         # Convert to UTC for MongoDB query (MongoDB stores dates in UTC)
-        start_utc = start_date.astimezone(pytz.UTC)
-        end_utc = end_date.astimezone(pytz.UTC)
+        start_utc = start_date_obj.astimezone(pytz.UTC)
+        end_utc = end_date_obj.astimezone(pytz.UTC)
         
-        # 1. Get total count of done requests (unfiltered by date)
-        done_total_unfiltered = collection.count_documents({
-            "status.done.check": True
-        })
-        
-        # 2. Get filtered counts for the date range
-        # Build aggregation pipeline for status counts
-        pipeline = [
-            {
-                "$match": {
-                    "date": {
-                        "$gte": start_utc,
-                        "$lte": end_utc
-                    }
-                }
-            },
-            {
-                "$group": {
-                    "_id": None,
-                    "to_do": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$status.to_do.check", True]}, 1, 0]
-                        }
-                    },
-                    "in_progress": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$status.in_progress.check", True]}, 1, 0]
-                        }
-                    },
-                    "done": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$status.done.check", True]}, 1, 0]
-                        }
-                    }
-                }
-            }
-        ]
-        
-        result = list(collection.aggregate(pipeline))
-        
-        if result:
-            filtered_counts = {
-                "to_do": result[0]["to_do"],
-                "in_progress": result[0]["in_progress"],
-                "done": result[0]["done"]
-            }
-        else:
-            filtered_counts = {
-                "to_do": 0,
-                "in_progress": 0,
-                "done": 0
-            }
-        
-        # Format response
-        response = {
-            "done_total_unfiltered": done_total_unfiltered,
-            "filtered_counts": filtered_counts,
-            "meta": {
-                "range": range,
-                "start_iso": start_date.isoformat(),
-                "end_iso": end_date.isoformat()
+        # Build match filter for done requests within date range
+        # Using closed_at timestamp for completion (when status becomes done)
+        match_filter = {
+            "status.done.check": True,
+            "date": {
+                "$gte": start_utc,
+                "$lte": end_utc
             }
         }
         
-        return response
+        # Add location filter if provided (skip if "All Cities" or empty)
+        if location and location.strip() and location.strip() != "All Cities":
+            loc = location.strip()
+            match_filter["location"] = {"$eq": loc}
+        
+        # Count done requests with filters applied
+        done_count = collection.count_documents(match_filter)
+        
+        # Return minimal response with done count
+        return {
+            "done_count": done_count
+        }
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
