@@ -1,0 +1,58 @@
+### Root
+GET http://127.0.0.1:8000/
+
+### Health
+GET http://127.0.0.1:8000/healthz
+
+### City list
+GET http://127.0.0.1:8000/city-list
+
+### Hubs
+GET http://127.0.0.1:8000/hub-list
+
+### Bengaluru hubs list -> should use Bangalore internally
+GET http://127.0.0.1:8000/hub-list/location?location=Bengaluru
+
+### Bengaluru hubs count -> should use Bangalore internally
+GET http://127.0.0.1:8000/hub-list/location/count?location=Bengaluru
+
+### Control check (other city unchanged)
+GET http://127.0.0.1:8000/hub-list/location?location=Kolkata
+
+### Analytics summary with location Bengaluru -> should use Bangalore internally
+GET http://127.0.0.1:8000/api/v1/analytics/service-requests/summary?range=today&location=Bengaluru
+
+### Technicians
+GET http://127.0.0.1:8000/api/v1/technicians?limit=5
+
+### Service tickets
+GET http://127.0.0.1:8000/service-tickets?limit=5
+
+### Analytics summary
+GET http://127.0.0.1:8000/api/v1/analytics/service-requests/summary?range=today
+
+
+### --- City alias Bengaluru -> Bangalore verifications ---
+### Hubs list (Bengaluru)
+GET http://127.0.0.1:8000/hub-list/location?location=Bengaluru
+
+### Hubs count (Bengaluru)
+GET http://127.0.0.1:8000/hub-list/location/count?location=Bengaluru
+
+### Analytics summary (Bengaluru)
+GET http://127.0.0.1:8000/api/v1/analytics/service-requests/summary?range=today&location=Bengaluru
+
+### Control - Other city unchanged
+GET http://127.0.0.1:8000/hub-list/location?location=Kolkata
+
+### All Cities unchanged
+GET http://127.0.0.1:8000/api/v1/analytics/service-requests/summary?range=today&location=All%20Cities
+
+
+### Total Technicians — Bengaluru should equal Bangalore
+GET http://127.0.0.1:8000/api/v1/technicians/location?city=Bengaluru
+
+### Total Technicians — Bangalore
+GET http://127.0.0.1:8000/api/v1/technicians/location?city=Bangalore
+
+

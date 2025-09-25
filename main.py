@@ -1,14 +1,23 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from config.database import db
 from dotenv import load_dotenv
 from routes.hubs import router as hubs_router
 from routes.service_tickets import router as service_tickets_router
 from routes.technicians import router as technicians_router
 from routes.analytics import router as analytics_router
+import os
 
 load_dotenv()
-app = FastAPI(title="Eveez Service API", version="1.0.0")
+
+# PERF: Use ORJSON for faster serialization by default in production.
+USE_ORJSON = os.getenv("USE_ORJSON", "1") not in ("0", "false", "False")
+default_kwargs = {"title": "Eveez Service API", "version": "1.0.0"}
+if USE_ORJSON:
+    default_kwargs["default_response_class"] = ORJSONResponse
+
+app = FastAPI(**default_kwargs)
 
 # Add CORS middleware
 app.add_middleware(
@@ -33,10 +42,12 @@ def root():
 def get_city_list():
     try:
         conn = db.get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
+        # PERF: use buffered cursor to avoid "Unread result found" and fetchall immediately
+        cursor = conn.cursor(dictionary=True, buffered=True)
         cursor.execute("SELECT * FROM ms_city ORDER BY city_name")
         cities = cursor.fetchall()
         cursor.close()
+        conn.close()
         return {"success": True, "data": cities, "count": len(cities)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -50,6 +61,28 @@ def test_mongo():
         return {"success": True, "message": "MongoDB connected successfully", "collections": collections}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Health endpoints (lightweight, no DB by default)
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+@app.get("/readiness")
+def readiness():
+    # Optional DB check via env flag
+    check_db = os.getenv("READINESS_CHECK_DB", "0") in ("1", "true", "True")
+    if not check_db:
+        return {"status": "ready"}
+    try:
+        conn = db.get_mysql_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"status": "ready"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"not ready: {e}")
 
 if __name__ == "__main__":
     import uvicorn

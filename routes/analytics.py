@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import pytz
 from bson import ObjectId
+from utils.city_alias import normalize_city
 
 router = APIRouter()
 
@@ -111,8 +112,10 @@ def get_service_requests_summary(
         
         # Add location filter if provided (skip if "All Cities" or empty)
         if location and location.strip() and location.strip() != "All Cities":
-            loc = location.strip()
-            match_filter["location"] = {"$eq": loc}
+            original_location = location
+            db_location, _ = normalize_city(location)
+            if db_location:
+                match_filter["location"] = {"$eq": db_location}
         
         # Count done requests with filters applied
         done_count = collection.count_documents(match_filter)

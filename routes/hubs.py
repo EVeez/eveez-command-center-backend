@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from config.database import db
 from typing import Optional
+from utils.city_alias import normalize_city
 
 router = APIRouter()
 
@@ -8,10 +9,12 @@ router = APIRouter()
 def get_hub_list():
 	try:
 		conn = db.get_mysql_connection()
-		cursor = conn.cursor(dictionary=True)
+		# PERF: buffered cursor + ensure connection closed
+		cursor = conn.cursor(dictionary=True, buffered=True)
 		cursor.execute("SELECT * FROM ms_hub ORDER BY hub_name")
 		hubs = cursor.fetchall()
 		cursor.close()
+		conn.close()
 		return {"success": True, "data": hubs, "count": len(hubs)}
 	except Exception as error:
 		raise HTTPException(status_code=500, detail=str(error))
@@ -25,12 +28,24 @@ def get_hubs_by_location(
     Get hubs filtered by location from MySQL ms_hub table
     """
     try:
+        original_location = location
+        db_location, aliased = normalize_city(location)
+        if db_location is None:
+            # Preserve existing behavior: if empty provided, treat as no results for this endpoint
+            return {
+                "success": True,
+                "data": [],
+                "total_count": 0,
+                "limit": limit,
+                "returned_count": 0,
+                "filtered_by": {"location": original_location}
+            }
         conn = db.get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(dictionary=True, buffered=True)
         
         # Count total hubs for the location
         count_query = "SELECT COUNT(*) as total FROM ms_hub WHERE location = %s"
-        cursor.execute(count_query, (location,))
+        cursor.execute(count_query, (db_location,))
         total_count = cursor.fetchone()['total']
         
         # Fetch hubs with pagination
@@ -41,9 +56,10 @@ def get_hubs_by_location(
             ORDER BY hub_name 
             LIMIT %s
         """
-        cursor.execute(query, (location, limit))
+        cursor.execute(query, (db_location, limit))
         hubs = cursor.fetchall()
         cursor.close()
+        conn.close()
         
         return {
             "success": True,
@@ -52,7 +68,7 @@ def get_hubs_by_location(
             "limit": limit,
             "returned_count": len(hubs),
             "filtered_by": {
-                "location": location
+                "location": original_location
             }
         }
         
@@ -66,10 +82,11 @@ def get_hub_count():
     """
     try:
         conn = db.get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(dictionary=True, buffered=True)
         cursor.execute("SELECT COUNT(*) as total FROM ms_hub")
         result = cursor.fetchone()
         cursor.close()
+        conn.close()
         return {"success": True, "total": result['total']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching hub count: {str(e)}")
@@ -82,11 +99,15 @@ def get_hub_count_by_location(
     Get count of hubs filtered by location for performance
     """
     try:
+        db_location, aliased = normalize_city(location)
+        if db_location is None:
+            return {"success": True, "total": 0}
         conn = db.get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT COUNT(*) as total FROM ms_hub WHERE location = %s", (location,))
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        cursor.execute("SELECT COUNT(*) as total FROM ms_hub WHERE location = %s", (db_location,))
         result = cursor.fetchone()
         cursor.close()
+        conn.close()
         return {"success": True, "total": result['total']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching hub count by location: {str(e)}")

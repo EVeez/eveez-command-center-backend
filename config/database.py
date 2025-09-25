@@ -1,5 +1,6 @@
 import os
 import mysql.connector
+from mysql.connector.pooling import MySQLConnectionPool
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import logging
@@ -12,30 +13,38 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.mysql_conn = None
+        # PERF: Use a MySQL connection pool instead of a single global connection.
+        # A single shared connection across requests can cause "Unread result found"
+        # and high CPU due to contention. Pooling is thread-safe and avoids reload issues.
+        self.mysql_pool = None
         self.mongo_client = None
         self.mongo_db = None
     
     def get_mysql_connection(self):
         try:
-            if not self.mysql_conn or not self.mysql_conn.is_connected():
+            if not self.mysql_pool:
                 # Support both existing and new env var names without breaking changes
                 mysql_host = os.getenv('MYSQL_HOST', 'localhost')
                 mysql_port = int(os.getenv('MYSQL_PORT', os.getenv('MYSQL_TCP_PORT', 3306)))
                 mysql_user = os.getenv('MYSQL_USER', 'root')
                 mysql_password = os.getenv('MYSQL_PASSWORD', '1234')
                 mysql_db = os.getenv('MYSQL_DB', os.getenv('MYSQL_DATABASE', 'masters'))
+                pool_name = os.getenv('MYSQL_POOL_NAME', 'eveez_pool')
+                pool_size = int(os.getenv('MYSQL_POOL_SIZE', '5'))
 
-                self.mysql_conn = mysql.connector.connect(
+                self.mysql_pool = MySQLConnectionPool(
+                    pool_name=pool_name,
+                    pool_size=pool_size,
                     host=mysql_host,
                     port=mysql_port,
                     user=mysql_user,
                     password=mysql_password,
                     database=mysql_db,
-                    autocommit=True
+                    autocommit=True,
                 )
-                logger.info("MySQL connection established successfully")
-            return self.mysql_conn
+                logger.info("MySQL connection pool initialized (size=%s)", pool_size)
+            # Return a new pooled connection per request; caller should conn.close()
+            return self.mysql_pool.get_connection()
         except Exception as e:
             logger.error(f"MySQL connection error: {str(e)}")
             raise e
@@ -51,7 +60,7 @@ class Database:
                 # Test the connection
                 self.mongo_client.admin.command('ping')
                 logger.info("MongoDB connection established successfully")
-                # Ensure indexes are created
+                # Ensure indexes are created (best-effort)
                 self.ensure_mongo_indexes()
             return self.mongo_db
         except Exception as e:

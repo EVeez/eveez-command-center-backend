@@ -4,6 +4,7 @@ from typing import Optional, List, Any, Dict
 import logging
 from bson import ObjectId
 import json
+from utils.city_aliases import normalize_city_for_technician_count
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,7 +42,8 @@ def get_technicians(
         total_count = collection.count_documents(query_filter)
         
         # Fetch data with pagination
-        cursor = collection.find(query_filter).limit(limit)
+        # PERF: project only needed fields to reduce payload/CPU
+        cursor = collection.find(query_filter, projection={"_id": 1, "name": 1, "location": 1, "role": 1}).limit(limit)
         technicians = list(cursor)
         
         # Convert ObjectId to string for JSON serialization
@@ -77,19 +79,32 @@ def get_technicians_by_location(
         base_filter = {"role": "Technician"}
         
         if city:
-            # If specific city requested, return count for that city only
-            query_filter = {
-                **base_filter,
-                "location": {"$regex": city, "$options": "i"}  # Case-insensitive city search
-            }
+            # Narrow-scoped normalization ONLY for Total Technicians metric
+            raw_city = city
+            norm_city = normalize_city_for_technician_count(raw_city)
+            # One-time debug when alias triggers (prod log level remains unchanged)
+            if raw_city and raw_city.strip() != norm_city:
+                logger.debug(f"[TECH-ALIAS] TotalTechnicians: '{raw_city}' -> '{norm_city}'")
+
+            # If UI passes All/All Cities, bypass city filter entirely
+            if norm_city and norm_city.strip().casefold() in ("all", "all cities"):
+                query_filter = {**base_filter}
+            else:
+                # If specific city requested, return count for that city only
+                query_filter = {
+                    **base_filter,
+                    # Case-insensitive city search with normalized value
+                    "location": {"$regex": norm_city, "$options": "i"}
+                }
             
             count = collection.count_documents(query_filter)
             
             return {
                 "success": True,
-                "data": [{"city": city, "count": count}],
+                # Return the normalized city label that was used for filtering
+                "data": [{"city": norm_city if norm_city else city, "count": count}],
                 "total": count,
-                "filtered_by": {"city": city}
+                "filtered_by": {"city": norm_city if norm_city else city}
             }
         else:
             # Aggregate technicians by city

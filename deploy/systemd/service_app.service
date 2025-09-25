@@ -1,0 +1,17 @@
+[Unit]
+Description=Eveez FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=%h/app
+EnvironmentFile=%h/app/.env
+ExecStart=%h/app/venv/bin/gunicorn main:app -c gunicorn_conf.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+

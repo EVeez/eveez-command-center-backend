@@ -52,7 +52,8 @@ def get_service_tickets(
         total_count = collection.count_documents(query_filter)
         
         # Fetch data with pagination
-        cursor = collection.find(query_filter).limit(limit)
+        # PERF: Project minimal fields commonly needed; adjust as necessary later
+        cursor = collection.find(query_filter, projection={"_id": 1, "request_type": 1, "location": 1, "created_at": 1}).limit(limit)
         service_tickets = list(cursor)
         
         # Convert ObjectId to string for JSON serialization
