@@ -19,12 +19,27 @@ if USE_ORJSON:
 
 app = FastAPI(**default_kwargs)
 
+# CORS configuration - read allowed origins from env, with secure defaults
+DEFAULT_ALLOWED_ORIGINS = [
+    "https://eveez.in",
+    "https://www.eveez.in",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+# Add extra origins from environment variable (comma-separated)
+extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+if extra_origins.strip():
+    DEFAULT_ALLOWED_ORIGINS.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    allow_origins=DEFAULT_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
